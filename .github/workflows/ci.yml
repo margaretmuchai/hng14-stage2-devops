@@ -43,7 +43,7 @@ jobs:
         run: |
           npm run lint --prefix frontend || echo "No lint script, skipping"
 
-- name: Lint Dockerfiles
+      - name: Lint Dockerfiles
         run: |
           set +e
           if command -v hadolint &> /dev/null; then
