@@ -101,24 +101,24 @@ jobs:
 
       - name: Build API image
         run: |
-          docker build -f api/Dockerfile -t ${{ env.REGISTRY }}/api:latest -t ${{ env.REGISTRY }}/api:${{ github.sha }} api/
+          docker build -f api/Dockerfile -t localhost:5000/api:latest -t localhost:5000/api:${{ github.sha }} api/
 
       - name: Build Worker image
         run: |
-          docker build -f worker/Dockerfile -t ${{ env.REGISTRY }}/worker:latest -t ${{ env.REGISTRY }}/worker:${{ github.sha }} worker/
+          docker build -f worker/Dockerfile -t localhost:5000/worker:latest -t localhost:5000/worker:${{ github.sha }} worker/
 
       - name: Build Frontend image
         run: |
-          docker build -f frontend/Dockerfile -t ${{ env.REGISTRY }}/frontend:latest -t ${{ env.REGISTRY }}/frontend:${{ github.sha }} frontend/
+          docker build -f frontend/Dockerfile -t localhost:5000/frontend:latest -t localhost:5000/frontend:${{ github.sha }} frontend/
 
       - name: Push images to local registry
         run: |
-          docker push ${{ env.REGISTRY }}/api:latest
-          docker push ${{ env.REGISTRY }}/api:${{ github.sha }}
-          docker push ${{ env.REGISTRY }}/worker:latest
-          docker push ${{ env.REGISTRY }}/worker:${{ github.sha }}
-          docker push ${{ env.REGISTRY }}/frontend:latest
-          docker push ${{ env.REGISTRY }}/frontend:${{ github.sha }}
+          docker push localhost:5000/api:latest
+          docker push localhost:5000/api:${{ github.sha }}
+          docker push localhost:5000/worker:latest
+          docker push localhost:5000/worker:${{ github.sha }}
+          docker push localhost:5000/frontend:latest
+          docker push localhost:5000/frontend:${{ github.sha }}
 
   security-scan:
     runs-on: ubuntu-latest
@@ -129,10 +129,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Start local Docker registry
+      - name: Pull images
         run: |
-          docker run -d --name registry --network host registry:2 || true
-          docker pull ${{ env.REGISTRY }}/api:latest || docker build -f api/Dockerfile -t ${{ env.REGISTRY }}/api:latest api/
+          docker pull localhost:5000/api:latest || true
+          docker pull localhost:5000/worker:latest || true
+          docker pull localhost:5000/frontend:latest || true
 
       - name: Install Trivy
         uses: aquasecurity/trivy-action@master
@@ -142,23 +143,17 @@ jobs:
       - name: Scan API image
         continue-on-error: true
         run: |
-          trivy image --severity CRITICAL,HIGH --format sarif -o api-results.sarif ${{ env.REGISTRY }}/api:latest
-        env:
-          REGISTRY: localhost:5000
+          trivy image --severity CRITICAL,HIGH --format sarif -o api-results.sarif localhost:5000/api:latest || true
 
       - name: Scan Worker image
         continue-on-error: true
         run: |
-          trivy image --severity CRITICAL,HIGH --format sarif -o worker-results.sarif ${{ env.REGISTRY }}/worker:latest
-        env:
-          REGISTRY: localhost:5000
+          trivy image --severity CRITICAL,HIGH --format sarif -o worker-results.sarif localhost:5000/worker:latest || true
 
       - name: Scan Frontend image
         continue-on-error: true
         run: |
-          trivy image --severity CRITICAL,HIGH --format sarif -o frontend-results.sarif ${{ env.REGISTRY }}/frontend:latest
-        env:
-          REGISTRY: localhost:5000
+          trivy image --severity CRITICAL,HIGH --format sarif -o frontend-results.sarif localhost:5000/frontend:latest || true
 
       - name: Upload SARIF results
         uses: actions/upload-artifact@v4
@@ -194,9 +189,9 @@ jobs:
 
       - name: Pull images
         run: |
-          docker pull ${{ env.REGISTRY }}/api:latest || docker build -f api/Dockerfile -t ${{ env.REGISTRY }}/api:latest api/
-          docker pull ${{ env.REGISTRY }}/worker:latest || docker build -f worker/Dockerfile -t ${{ env.REGISTRY }}/worker:latest worker/
-          docker pull ${{ env.REGISTRY }}/frontend:latest || docker build -f frontend/Dockerfile -t ${{ env.REGISTRY }}/frontend:latest frontend/
+          docker pull localhost:5000/api:latest || docker build -f api/Dockerfile -t localhost:5000/api:latest api/
+          docker pull localhost:5000/worker:latest || docker build -f worker/Dockerfile -t localhost:5000/worker:latest worker/
+          docker pull localhost:5000/frontend:latest || docker build -f frontend/Dockerfile -t localhost:5000/frontend:latest frontend/
 
       - name: Bring up stack
         run: |
