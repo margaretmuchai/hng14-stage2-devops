@@ -1,8 +1,8 @@
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 WORKDIR /build
 
-COPY api/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 FROM python:3.11-slim
@@ -13,7 +13,7 @@ WORKDIR /app
 
 COPY --from=builder /root/.local /home/appuser/.local
 
-COPY --chown=appuser:appgroup api/ .
+COPY --chown=appuser:appgroup . .
 
 ENV PATH=/home/appuser/.local/bin:$PATH \
     PYTHONUNBUFFERED=1 \

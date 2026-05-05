@@ -1,8 +1,8 @@
-FROM node:20-alpine as builder
+FROM node:20-alpine AS builder
 
 WORKDIR /build
 
-COPY frontend/package.json . 
+COPY package.json .
 RUN npm install --omit=dev
 
 FROM node:20-alpine
@@ -13,7 +13,7 @@ WORKDIR /app
 
 COPY --from=builder /build/node_modules /app/node_modules
 
-COPY --chown=appuser:appgroup frontend/ .
+COPY --chown=appuser:appgroup . .
 
 ENV NODE_ENV=production \
     PORT=3000
