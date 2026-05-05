@@ -54,3 +54,265 @@ jobs:
             echo "hadolint not found, skipping"
           fi
           set -e
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r api/requirements.txt
+          pip install -r api/requirements.txt
+
+      - name: Run API unit tests
+        working-directory: api
+        run: |
+          pytest test_main.py -v --cov=. --cov-report=xml --cov-report=term
+        env:
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          REDIS_PASSWORD: ''
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: api/coverage.xml
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start local Docker registry
+        run: |
+          docker run -d --name registry --network host registry:2
+
+      - name: Build API image
+        run: |
+          docker build -f api/Dockerfile -t ${{ env.REGISTRY }}/api:latest -t ${{ env.REGISTRY }}/api:${{ github.sha }} api/
+
+      - name: Build Worker image
+        run: |
+          docker build -f worker/Dockerfile -t ${{ env.REGISTRY }}/worker:latest -t ${{ env.REGISTRY }}/worker:${{ github.sha }} worker/
+
+      - name: Build Frontend image
+        run: |
+          docker build -f frontend/Dockerfile -t ${{ env.REGISTRY }}/frontend:latest -t ${{ env.REGISTRY }}/frontend:${{ github.sha }} frontend/
+
+      - name: Push images to local registry
+        run: |
+          docker push ${{ env.REGISTRY }}/api:latest
+          docker push ${{ env.REGISTRY }}/api:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/worker:latest
+          docker push ${{ env.REGISTRY }}/worker:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/frontend:latest
+          docker push ${{ env.REGISTRY }}/frontend:${{ github.sha }}
+
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start local Docker registry
+        run: |
+          docker run -d --name registry --network host registry:2 || true
+          docker pull ${{ env.REGISTRY }}/api:latest || docker build -f api/Dockerfile -t ${{ env.REGISTRY }}/api:latest api/
+
+      - name: Install Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          version: latest
+
+      - name: Scan API image
+        continue-on-error: true
+        run: |
+          trivy image --severity CRITICAL,HIGH --format sarif -o api-results.sarif ${{ env.REGISTRY }}/api:latest
+        env:
+          REGISTRY: localhost:5000
+
+      - name: Scan Worker image
+        continue-on-error: true
+        run: |
+          trivy image --severity CRITICAL,HIGH --format sarif -o worker-results.sarif ${{ env.REGISTRY }}/worker:latest
+        env:
+          REGISTRY: localhost:5000
+
+      - name: Scan Frontend image
+        continue-on-error: true
+        run: |
+          trivy image --severity CRITICAL,HIGH --format sarif -o frontend-results.sarif ${{ env.REGISTRY }}/frontend:latest
+        env:
+          REGISTRY: localhost:5000
+
+      - name: Upload SARIF results
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results
+          path: '*.sarif'
+
+      - name: Check for CRITICAL vulnerabilities
+        run: |
+          if [ -f api-results.sarif ] && grep -q '"severity":"CRITICAL"' api-results.sarif; then
+            echo "CRITICAL vulnerabilities found in API image"
+            cat api-results.sarif
+            exit 1
+          fi
+          if [ -f worker-results.sarif ] && grep -q '"severity":"CRITICAL"' worker-results.sarif; then
+            echo "CRITICAL vulnerabilities found in Worker image"
+            exit 1
+          fi
+          if [ -f frontend-results.sarif ] && grep -q '"severity":"CRITICAL"' frontend-results.sarif; then
+            echo "CRITICAL vulnerabilities found in Frontend image"
+            exit 1
+          fi
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: [security-scan]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Docker registry
+        run: |
+          docker run -d --name registry --network host registry:2 || true
+
+      - name: Pull images
+        run: |
+          docker pull ${{ env.REGISTRY }}/api:latest || docker build -f api/Dockerfile -t ${{ env.REGISTRY }}/api:latest api/
+          docker pull ${{ env.REGISTRY }}/worker:latest || docker build -f worker/Dockerfile -t ${{ env.REGISTRY }}/worker:latest worker/
+          docker pull ${{ env.REGISTRY }}/frontend:latest || docker build -f frontend/Dockerfile -t ${{ env.REGISTRY }}/frontend:latest frontend/
+
+      - name: Bring up stack
+        run: |
+          docker compose -f docker-compose.test.yml up -d
+
+      - name: Wait for services to be healthy
+        run: |
+          sleep 30
+          docker compose -f docker-compose.test.yml ps
+
+      - name: Wait for Redis
+        run: |
+          for i in {1..30}; do
+            if docker compose -f docker-compose.test.yml exec -T redis redis-cli ping | grep -q PONG; then
+              echo "Redis is ready"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Install jq
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Create test job via API
+        run: |
+          JOB_ID=$(curl -s -X POST http://localhost:8000/jobs | jq -r '.job_id')
+          echo "Created job: $JOB_ID"
+
+      - name: Poll job status until completed
+        run: |
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            STATUS=$(curl -s http://localhost:8000/jobs/$JOB_ID | jq -r '.status')
+            echo "Attempt $ATTEMPT: Job status is $STATUS"
+            if [ "$STATUS" = "completed" ]; then
+              echo "Job completed successfully!"
+              exit 0
+            fi
+            if [ "$STATUS" = "failed" ]; then
+              echo "Job failed!"
+              exit 1
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+            sleep 3
+          done
+          echo "Job did not complete in time"
+          exit 1
+
+      - name: Assert final status
+        run: |
+          FINAL_STATUS=$(curl -s http://localhost:8000/jobs/$JOB_ID | jq -r '.status')
+          if [ "$FINAL_STATUS" = "completed" ]; then
+            echo "Integration test PASSED"
+          else
+            echo "Integration test FAILED: status is $FINAL_STATUS"
+            exit 1
+          fi
+
+      - name: Tear down stack
+        if: always()
+        run: |
+          docker compose -f docker-compose.test.yml down || true
+          docker rm -f registry || true
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [integration-test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH for deployment
+        run: |
+          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+
+      - name: Perform rolling update
+        run: |
+          SSH_HOST="${{ secrets.DEPLOY_HOST }}"
+          SSH_USER="${{ secrets.DEPLOY_USER }}"
+          SSH_PORT="${DEPLOY_PORT:-22}"
+          
+          scp -o StrictHostKeyChecking=no -P $SSH_PORT docker-compose.yml ${SSH_USER}@${SSH_HOST}:/tmp/
+          
+          ssh -o StrictHostKeyChecking=no -p $SSH_PORT ${SSH_USER}@${SSH_HOST} << 'EOF'
+            cd /tmp
+            REDIS_PASSWORD='${{ secrets.REDIS_PASSWORD }}' docker compose pull
+            REDIS_PASSWORD='${{ secrets.REDIS_PASSWORD }}' docker compose up -d --no-color
+            
+            for i in {1..60}; do
+              if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+                echo "New API is healthy after ${i}s"
+                break
+              fi
+              if [ $i -eq 60 ]; then
+                echo "Health check failed after 60s, aborting rolling update"
+                exit 1
+              fi
+              sleep 1
+            done
+            
+            docker compose stop worker
+            docker compose up -d worker
+            
+            for i in {1..60}; do
+              if docker compose ps worker | grep -q "Up"; then
+                echo "Worker started successfully"
+                break
+              fi
+              sleep 1
+            done
+            
+            echo "Rolling update completed successfully"
+            docker compose ps
+          EOF
