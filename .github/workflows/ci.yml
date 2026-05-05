@@ -220,15 +220,23 @@ jobs:
 
       - name: Create test job via API
         run: |
-          JOB_ID=$(curl -s -X POST http://localhost:8000/jobs | jq -r '.job_id')
-          echo "Created job: $JOB_ID"
+          RESPONSE=$(curl -s -X POST http://localhost:8000/jobs)
+          echo "Response: $RESPONSE"
+          if echo "$RESPONSE" | jq -e .job_id > /dev/null 2>&1; then
+            JOB_ID=$(echo "$RESPONSE" | jq -r '.job_id')
+            echo "JOB_ID=$JOB_ID" >> $GITHUB_ENV
+            echo "Created job: $JOB_ID"
+          else
+            echo "Failed to create job"
+            exit 1
+          fi
 
       - name: Poll job status until completed
         run: |
           MAX_ATTEMPTS=30
           ATTEMPT=0
           while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-            STATUS=$(curl -s http://localhost:8000/jobs/$JOB_ID | jq -r '.status')
+            STATUS=$(curl -s http://localhost:8000/jobs/$JOB_ID | jq -r '.status // "error"')
             echo "Attempt $ATTEMPT: Job status is $STATUS"
             if [ "$STATUS" = "completed" ]; then
               echo "Job completed successfully!"
@@ -246,7 +254,7 @@ jobs:
 
       - name: Assert final status
         run: |
-          FINAL_STATUS=$(curl -s http://localhost:8000/jobs/$JOB_ID | jq -r '.status')
+          FINAL_STATUS=$(curl -s http://localhost:8000/jobs/$JOB_ID | jq -r '.status // "error"')
           if [ "$FINAL_STATUS" = "completed" ]; then
             echo "Integration test PASSED"
           else
