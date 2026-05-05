@@ -14,9 +14,8 @@ redis_password = os.getenv("REDIS_PASSWORD", None)
 
 r = redis.Redis(host=redis_host, port=redis_port, password=redis_password, decode_responses=False)
 
+
 @app.post("/jobs")
-
-
 def create_job():
     job_id = str(uuid.uuid4())
     r.rpush("jobs", job_id)
