@@ -33,7 +33,7 @@ jobs:
 
       - name: Install Node.js linting tools
         run: |
-          npm ci --prefix frontend
+          npm install --prefix frontend
 
       - name: Lint Python (flake8)
         run: |

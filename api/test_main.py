@@ -1,30 +1,11 @@
-import os
-import sys
-from unittest.mock import MagicMock, patch
-
-os.environ.setdefault("REDIS_HOST", "localhost")
-os.environ.setdefault("REDIS_PORT", "6379")
-os.environ.setdefault("REDIS_PASSWORD", "")
-
 import pytest
+from fastapi.testclient import TestClient
+import main
 
 
 @pytest.fixture
-def mock_redis():
-    mock = MagicMock()
-    mock.ping.return_value = True
-    mock.rpush.return_value = 1
-    mock.hset.return_value = 1
-    mock.hget.return_value = b"queued"
-    return mock
-
-
-@pytest.fixture
-def client(mock_redis):
-    with patch("main.redis.Redis", return_value=mock_redis):
-        from fastapi.testclient import TestClient
-        import main
-        return TestClient(main.app)
+def client():
+    return TestClient(main.app)
 
 
 def test_health_check(client):
@@ -33,8 +14,10 @@ def test_health_check(client):
     assert response.json()["status"] == "ok"
 
 
-def test_health_check_error(client, mock_redis):
-    mock_redis.ping.side_effect = Exception("Connection failed")
+def test_health_check_error(client):
+    def raise_error():
+        raise Exception("Connection failed")
+    main.r.ping = raise_error
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "error"
@@ -48,15 +31,14 @@ def test_create_job(client):
     assert len(data["job_id"]) == 36
 
 
-def test_get_job(client, mock_redis):
-    mock_redis.hget.return_value = b"completed"
+def test_get_job(client):
+    main.r._data["job:test-id:status"] = "completed"
     response = client.get("/jobs/test-id")
     assert response.status_code == 200
     assert response.json()["status"] == "completed"
 
 
-def test_get_job_not_found(client, mock_redis):
-    mock_redis.hget.return_value = None
+def test_get_job_not_found(client):
     response = client.get("/jobs/missing")
     assert response.status_code == 200
     assert response.json()["error"] == "not found"
