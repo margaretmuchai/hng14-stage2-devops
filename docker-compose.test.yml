@@ -5,6 +5,12 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   api:
     build:
@@ -14,8 +20,10 @@ services:
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     ports:
       - "8000:8000"
 
@@ -24,14 +32,21 @@ services:
       context: ./worker
       dockerfile: Dockerfile
     image: localhost:5000/worker:latest
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     image: localhost:5000/frontend:latest
+    environment:
+      API_URL: http://api:8000
     depends_on:
       - api
     ports:
