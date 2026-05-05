@@ -191,7 +191,7 @@ jobs:
         run: |
           docker run -d --name registry --network host registry:2 || true
 
-- name: Pull images
+      - name: Pull images
         run: |
           docker pull localhost:5000/api:latest || docker build -f api/Dockerfile -t localhost:5000/api:latest api/
           docker pull localhost:5000/worker:latest || docker build -f worker/Dockerfile -t localhost:5000/worker:latest worker/
