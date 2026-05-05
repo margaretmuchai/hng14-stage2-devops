@@ -174,73 +174,11 @@ jobs:
             exit 1
           fi
 
-  integration-test:
+integration-test:
     runs-on: ubuntu-latest
     needs: [security-scan]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Docker Compose
-        run: |
-          mkdir -p docker-compose.test.yml
-          cat > docker-compose.test.yml << 'EOF'
-version: "3.8"
-services:
-  redis:
-    image: redis:7-alpine
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    networks:
-      - testnet
-
-  api:
-    image: ${{ env.REGISTRY }}/api:latest
-    environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=
-    depends_on:
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - testnet
-
-  worker:
-    image: ${{ env.REGISTRY }}/worker:latest
-    environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=
-    depends_on:
-      redis:
-        condition: service_healthy
-    networks:
-      - testnet
-
-  frontend:
-    image: ${{ env.REGISTRY }}/frontend:latest
-    environment:
-      - API_URL=http://api:8000
-    depends_on:
-      api:
-        condition: service_healthy
-    ports:
-      - "3000:3000"
-    networks:
-      - testnet
-
-networks:
-  testnet:
-    driver: bridge
-EOF
 
       - name: Start Docker registry
         run: |
@@ -271,6 +209,10 @@ EOF
             sleep 2
           done
 
+      - name: Install jq
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq
+
       - name: Create test job via API
         run: |
           JOB_ID=$(curl -s -X POST http://localhost:8000/jobs | jq -r '.job_id')
@@ -297,8 +239,6 @@ EOF
           done
           echo "Job did not complete in time"
           exit 1
-        env:
-          JOB_ID: ${{ env.JOB_ID }}
 
       - name: Assert final status
         run: |
@@ -314,6 +254,7 @@ EOF
         if: always()
         run: |
           docker compose -f docker-compose.test.yml down || true
+          docker rm -f registry || true
           docker rm -f registry || true
 
   deploy:

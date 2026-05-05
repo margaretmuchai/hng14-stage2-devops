@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  api:
+    image: localhost:5000/api:latest
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - redis
+    ports:
+      - "8000:8000"
+
+  worker:
+    image: localhost:5000/worker:latest
+    depends_on:
+      - redis
+
+  frontend:
+    image: localhost:5000/frontend:latest
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
