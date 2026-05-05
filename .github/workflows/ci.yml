@@ -139,24 +139,24 @@ jobs:
           docker pull localhost:5000/frontend:latest || true
 
       - name: Install Trivy
-        uses: aquasecurity/trivy-action@master
-        with:
-          version: latest
+        run: |
+          wget https://github.com/aquasecurity/trivy/releases/download/v0.70.0/trivy_0.70.0_Linux-64bit.tar.gz -O - | tar -xzf - -C /tmp
+          mv /tmp/trivy /usr/local/bin/ || true
 
       - name: Scan API image
         continue-on-error: true
         run: |
-          trivy image --severity CRITICAL,HIGH --format sarif -o api-results.sarif localhost:5000/api:latest || true
+          /usr/local/bin/trivy image --severity CRITICAL,HIGH --format sarif -o api-results.sarif localhost:5000/api:latest || true
 
       - name: Scan Worker image
         continue-on-error: true
         run: |
-          trivy image --severity CRITICAL,HIGH --format sarif -o worker-results.sarif localhost:5000/worker:latest || true
+          /usr/local/bin/trivy image --severity CRITICAL,HIGH --format sarif -o worker-results.sarif localhost:5000/worker:latest || true
 
       - name: Scan Frontend image
         continue-on-error: true
         run: |
-          trivy image --severity CRITICAL,HIGH --format sarif -o frontend-results.sarif localhost:5000/frontend:latest || true
+          /usr/local/bin/trivy image --severity CRITICAL,HIGH --format sarif -o frontend-results.sarif localhost:5000/frontend:latest || true
 
       - name: Upload SARIF results
         uses: actions/upload-artifact@v4
