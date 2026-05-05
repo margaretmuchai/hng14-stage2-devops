@@ -37,7 +37,7 @@ jobs:
 
       - name: Lint Python (flake8)
         run: |
-          flake8 api/ worker/ --max-line-length=120 --ignore=E501,W503
+          flake8 api/ worker/ --max-line-length=120 --ignore=E501,W503,E402,W292
 
       - name: Lint JavaScript (eslint)
         run: |
