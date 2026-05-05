@@ -2,7 +2,6 @@ import redis
 import time
 import os
 import signal
-import sys
 
 redis_host = os.getenv("REDIS_HOST", "localhost")
 redis_port = int(os.getenv("REDIS_PORT", 6379))
@@ -12,13 +11,16 @@ r = redis.Redis(host=redis_host, port=redis_port, password=redis_password, decod
 
 running = True
 
+
 def signal_handler(sig, frame):
     global running
     print(f"Received signal {sig}, shutting down gracefully...")
     running = False
 
+
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
+
 
 def process_job(job_id):
     try:
@@ -29,6 +31,7 @@ def process_job(job_id):
     except Exception as e:
         print(f"Error processing job {job_id}: {e}")
         r.hset(f"job:{job_id}", "status", "failed")
+
 
 while running:
     try:
